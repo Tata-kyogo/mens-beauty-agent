@@ -1,0 +1,2 @@
+requests>=2.28.0    # publish_threads.py で Threads API 呼び出しに使用
+python-dotenv>=1.0  # .env ファイルの自動読み込み
