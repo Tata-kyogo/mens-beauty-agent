@@ -24,7 +24,7 @@ THREADS_AUTH_URL = "https://threads.net/oauth/authorize"
 THREADS_TOKEN_URL = "https://graph.threads.net/oauth/access_token"
 THREADS_LONGTOKEN_URL = "https://graph.threads.net/access_token"
 THREADS_ME_URL = "https://graph.threads.net/v1.0/me"
-SCOPES = "threads_basic,threads_content_publish"
+SCOPES = "threads_basic,threads_content_publish,threads_manage_insights"
 
 
 def load_env() -> dict:

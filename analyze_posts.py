@@ -88,24 +88,45 @@ def build_post_records(history: list) -> list:
 #  Threads API
 # ------------------------------------------------------------------ #
 
+DEBUG = os.environ.get("DEBUG", "").strip().lower() in ("1", "true")
+
+
 def fetch_metrics(post_id: str, token: str) -> dict:
     """
-    Threads API から like_count / reply_count を取得。
+    GET https://graph.threads.net/v1.0/{post_id}/insights
+    ?metric=likes,replies&access_token={token}
+    から like_count / reply_count を取得。
     取得できない場合は 0 を返す（クラッシュしない）。
     """
+    url = f"{THREADS_API_BASE}/{post_id}/insights"
+    params = {"metric": "likes,replies", "access_token": token}
+
     try:
-        resp = requests.get(
-            f"{THREADS_API_BASE}/{post_id}",
-            params={"fields": "like_count,replies_count", "access_token": token},
-            timeout=15,
-        )
-        d = resp.json() if resp.ok else {}
-    except requests.RequestException:
-        d = {}
+        resp = requests.get(url, params=params, timeout=15)
+        raw = resp.json()
+    except requests.RequestException as e:
+        print(f"\n  [DEBUG] リクエスト失敗: {e}")
+        raw = {}
+
+    if DEBUG:
+        print(f"\n  [DEBUG] POST_ID: {post_id}")
+        print(f"  [DEBUG] status : {resp.status_code}")
+        print(f"  [DEBUG] response: {json.dumps(raw, ensure_ascii=False)}")
+
+    # レスポンス形式: {"data": [{"name": "likes", "values": [{"value": N}]}, ...]}
+    metrics = {}
+    for item in raw.get("data", []):
+        name = item.get("name", "")
+        values = item.get("values", [])
+        if values:
+            metrics[name] = int(values[0].get("value", 0))
+        elif "total_value" in item:
+            tv = item["total_value"]
+            metrics[name] = int(tv.get("value", 0) if isinstance(tv, dict) else tv)
 
     return {
-        "like_count":  int(d.get("like_count", 0)),
-        "reply_count": int(d.get("replies_count", 0)),
+        "like_count":  metrics.get("likes", 0),
+        "reply_count": metrics.get("replies", 0),
     }
 
 
