@@ -1,14 +1,16 @@
 """
 write_posts.py — 1テーマから4本のThreads投稿を生成
 
-data/topic.txt を読み、テンプレートで4本生成。
+data/topic.txt を読み、Anthropic APIで4本生成。
 output.txt に保存し、post_history.json に追記。
 """
 import json
-import random
+import os
 import re
 from datetime import datetime
 from pathlib import Path
+
+import anthropic
 
 BASE_DIR = Path(__file__).resolve().parent
 TOPIC_PATH = BASE_DIR / "data" / "topic.txt"
@@ -20,51 +22,59 @@ LOG_PATH = BASE_DIR / "logs" / "run.log"
 
 POST_TYPES = ["観察", "分解", "断言", "予測"]
 
-# トピックからキーワードを抽出
-def _extract(topic: str) -> dict:
-    quoted = re.findall(r'「([^」]+)」', topic)
-    # 先頭の主語候補（助詞の前まで）
-    m = re.match(r'^([^\s、。にがはをのでも]{2,12})', topic)
-    subject = m.group(1) if m else "この市場"
-    # 短縮トピック（20字以内）
-    topic_short = topic[:20] + ("…" if len(topic) > 20 else "")
-    q0 = quoted[0] if quoted else "損失回避"
-    q1 = quoted[1] if len(quoted) > 1 else "現在より将来"
-    return {
-        "subject": subject,
-        "topic_short": topic_short,
-        "q0": q0,
-        "q1": q1,
-    }
-
-# 型別テンプレート（各2案、ランダム選択）
-_TEMPLATES: dict[str, list[str]] = {
-    "観察": [
-        "{subject}への消費行動が変化している。「モテたい」ではなく「損したくない」——動機のシフトが市場の実態と合い始めた。数字より先に、現場の感覚として現れていた変化だ。",
-        "{topic_short}という問い自体、消費者の動機が変わったサインだ。攻めではなく守りの論理で財布が開く。メンズ美容市場の構造は、静かに塗り替えられつつある。",
-    ],
-    "分解": [
-        "{subject}への課金動機を分解すると、現在の改善より将来の損失回避が先に来る。「やらないと不利になる」という構造が購買を動かしている。市場の本質はここにある。",
-        "この消費を分解すると「{q0}」が起点にある。見た目の改善ではなく、リスクの排除。その違いが購買行動の構造を決め、市場の伸び方も変えている。",
-    ],
-    "断言": [
-        "{subject}に課金するのは未来への不安からだ。現在の見た目より将来の損失回避——その心理が財布を開かせる。市場は「{q0}」の文脈で伸びる。今後もその構造は変わらない。",
-        "男性の美容消費は「よくなりたい」ではなく「悪くなりたくない」で動く。{topic_short}への答えは、すでに購買データが示している。市場の訴求軸はそこに集約される。",
-    ],
-    "予測": [
-        "{subject}の市場は損失回避訴求でさらに拡大する。改善訴求に反応しない層も、減点回避なら動く。この構造が定着すれば、数年後には訴求軸の主流が入れ替わるだろう。",
-        "「{q0}」を動機とした消費は増え続ける。基準が上がるたびに市場も広がる。防御的消費の拡大は一時的トレンドではなく、構造的変化として定着していく。",
-    ],
-}
-
 
 def generate_posts(topic: str) -> dict:
-    """テンプレートベースで4本の投稿を生成"""
-    kw = _extract(topic)
-    posts = {}
-    for ptype in POST_TYPES:
-        tmpl = random.choice(_TEMPLATES[ptype])
-        posts[ptype] = tmpl.format(**kw)
+    """Anthropic APIを使って4本の投稿を生成"""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("環境変数 ANTHROPIC_API_KEY が設定されていません")
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    prompt = f"""以下のテーマについて、メンズ美容市場向けのThreads投稿を4本生成してください。
+
+テーマ: {topic}
+
+投稿タイプと要件:
+1. 【観察】: 市場や消費者行動の変化を客観的に観察・描写する投稿。事実ベースで現状を伝える。
+2. 【分解】: 消費行動や市場構造の背景にあるメカニズムを分解・分析する投稿。「なぜそうなるか」を掘り下げる。
+3. 【断言】: 市場トレンドや消費者心理について断定的に主張する投稿。自信を持った断言口調で。
+4. 【予測】: 今後の市場変化や消費行動の変化を予測する投稿。将来展望を示す。
+
+各投稿の条件:
+- 100〜140字程度（Threads投稿として適切な長さ）
+- 改行なしの1段落
+- メンズ美容市場の文脈に即した内容
+- 読者の関心を引く表現
+
+以下のJSON形式で出力してください（他のテキストは不要）:
+{{
+  "観察": "投稿文",
+  "分解": "投稿文",
+  "断言": "投稿文",
+  "予測": "投稿文"
+}}"""
+
+    response = client.messages.create(
+        model="claude-3-5-sonnet-20240620",
+        max_tokens=1000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = next(b.text for b in response.content if b.type == "text")
+
+    # JSON部分を抽出してパース
+    m = re.search(r'\{[\s\S]*\}', text)
+    if not m:
+        raise ValueError(f"APIレスポンスからJSONを抽出できませんでした: {text}")
+
+    posts = json.loads(m.group())
+
+    # 必要なキーが揃っているか確認
+    missing = [t for t in POST_TYPES if t not in posts]
+    if missing:
+        raise ValueError(f"APIレスポンスに不足しているタイプ: {missing}")
+
     return posts
 
 
@@ -88,12 +98,14 @@ def main():
     posts = generate_posts(topic)
 
     # output.txt に保存
-    lines = [f"生成日時: {timestamp}", f"テーマ: {topic}", ""]
+    sep = "-" * 40
+    lines = [sep]
     for ptype in POST_TYPES:
         if ptype in posts:
             lines.append(f"【{ptype}】")
             lines.append(posts[ptype])
             lines.append("")
+    lines.append(sep)
     OUTPUT_PATH.write_text("\n".join(lines), encoding="utf-8")
 
     # post_history.json に追記
