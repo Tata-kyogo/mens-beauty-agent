@@ -10,7 +10,6 @@ Threads API フロー:
 """
 import json
 import os
-import re
 import sys
 import time
 from datetime import datetime
@@ -33,19 +32,7 @@ OUTPUT_PATH = BASE_DIR / "data" / "output.txt"
 HISTORY_PATH = BASE_DIR / "data" / "post_history.json"
 POST_LOG_PATH = BASE_DIR / "logs" / "post.log"
 
-POST_TYPES = ["観察", "分解", "断言", "予測"]
 THREADS_API_BASE = "https://graph.threads.net/v1.0"
-
-
-def parse_posts(path: Path) -> dict:
-    raw = path.read_text(encoding="utf-8")
-    posts = {}
-    for ptype in POST_TYPES:
-        pattern = rf"【{ptype}】\s*\n(.*?)(?=【|\Z)"
-        match = re.search(pattern, raw, re.DOTALL)
-        if match:
-            posts[ptype] = match.group(1).strip()
-    return posts
 
 
 def create_container(user_id: str, token: str, text: str) -> str:
@@ -109,36 +96,24 @@ def main():
         print("[ERROR] data/output.txt が存在しません", file=sys.stderr)
         sys.exit(1)
 
-    posts = parse_posts(OUTPUT_PATH)
-    if not posts:
-        print("[ERROR] output.txt から投稿を取得できませんでした", file=sys.stderr)
+    text = OUTPUT_PATH.read_text(encoding="utf-8").strip()
+    if not text:
+        print("[ERROR] output.txt が空です", file=sys.stderr)
         sys.exit(1)
 
-    print(f"{len(posts)}本の投稿を Threads に送信します。")
-    post_ids = []
-
-    for ptype in POST_TYPES:
-        if ptype not in posts:
-            continue
-        text = posts[ptype]
-        print(f"  投稿中: 【{ptype}】({len(text)}字)...", end="", flush=True)
-        try:
-            creation_id = create_container(user_id, token, text)
-            time.sleep(1)  # Threads API 推奨ウェイト
-            post_id = publish_container(user_id, token, creation_id)
-            post_ids.append(post_id)
-            print(f" 完了 (id: {post_id})")
-            log_post(f"投稿成功 | {ptype} | post_id={post_id} | {len(text)}字")
-        except Exception as e:
-            print(f" 失敗")
-            log_post(f"投稿失敗 | {ptype} | {e}")
-            print(f"[ERROR] 【{ptype}】投稿失敗: {e}", file=sys.stderr)
-
-    if post_ids:
-        update_history_published(post_ids)
-        print(f"\n投稿完了: {len(post_ids)}本")
-    else:
-        print("\n[ERROR] 投稿に失敗しました。logs/post.log を確認してください。", file=sys.stderr)
+    print(f"投稿中: ({len(text)}字)...", end="", flush=True)
+    try:
+        creation_id = create_container(user_id, token, text)
+        time.sleep(1)
+        post_id = publish_container(user_id, token, creation_id)
+        update_history_published([post_id])
+        print(f" 完了 (id: {post_id})")
+        log_post(f"投稿成功 | post_id={post_id} | {len(text)}字")
+        print("\n投稿完了")
+    except Exception as e:
+        print(" 失敗")
+        log_post(f"投稿失敗 | {e}")
+        print(f"[ERROR] 投稿失敗: {e}", file=sys.stderr)
         sys.exit(1)
 
 
